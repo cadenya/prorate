@@ -14,11 +14,18 @@ import (
 )
 
 func newMiniredisClient(t *testing.T) *redis.Client {
+	_, client := newMiniredis(t)
+	return client
+}
+
+// newMiniredis returns a fresh miniredis and a connected client, both
+// cleaned up with the test.
+func newMiniredis(t *testing.T) (*miniredis.Miniredis, *redis.Client) {
 	t.Helper()
 	mr := miniredis.RunT(t)
 	client := redis.NewClient(&redis.Options{Addr: mr.Addr()})
 	t.Cleanup(func() { _ = client.Close() })
-	return client
+	return mr, client
 }
 
 // TestConformance runs the full suite — including the exact GCRA sequence
@@ -36,9 +43,7 @@ func TestConformance(t *testing.T) {
 
 // TestKeyLayout checks the prefix + hash tag key shape lands in Redis.
 func TestKeyLayout(t *testing.T) {
-	mr := miniredis.RunT(t)
-	client := redis.NewClient(&redis.Options{Addr: mr.Addr()})
-	defer client.Close()
+	mr, client := newMiniredis(t)
 	clk := limitertest.NewClock()
 
 	l := redislimiter.New(client, redislimiter.WithNow(clk.Now))
@@ -60,9 +65,7 @@ func TestKeyLayout(t *testing.T) {
 
 // TestIdleKeyExpiry checks PEXPIRE is set so idle buckets self-evict.
 func TestIdleKeyExpiry(t *testing.T) {
-	mr := miniredis.RunT(t)
-	client := redis.NewClient(&redis.Options{Addr: mr.Addr()})
-	defer client.Close()
+	mr, client := newMiniredis(t)
 	clk := limitertest.NewClock()
 
 	l := redislimiter.New(client, redislimiter.WithNow(clk.Now))
@@ -84,9 +87,7 @@ func TestIdleKeyExpiry(t *testing.T) {
 // TestOversizedRequestLeavesNoState checks that n > Burst never writes a
 // bucket key (denied without consuming).
 func TestOversizedRequestLeavesNoState(t *testing.T) {
-	mr := miniredis.RunT(t)
-	client := redis.NewClient(&redis.Options{Addr: mr.Addr()})
-	defer client.Close()
+	mr, client := newMiniredis(t)
 	clk := limitertest.NewClock()
 
 	l := redislimiter.New(client, redislimiter.WithNow(clk.Now))
@@ -107,7 +108,7 @@ func TestOversizedRequestLeavesNoState(t *testing.T) {
 func TestBackendErrorSurfaces(t *testing.T) {
 	mr := miniredis.RunT(t)
 	client := redis.NewClient(&redis.Options{Addr: mr.Addr(), MaxRetries: -1})
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 	mr.Close()
 
 	l := redislimiter.New(client)

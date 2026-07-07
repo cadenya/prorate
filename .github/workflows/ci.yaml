@@ -63,4 +63,8 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-      - uses: golangci/golangci-lint-action@v6
+      # v8 ships golangci-lint v2, built with a Go new enough for this
+      # module's go directive (v6's golangci-lint v1 rejects go 1.25).
+      - uses: golangci/golangci-lint-action@v8
+        with:
+          version: latest

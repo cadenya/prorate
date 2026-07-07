@@ -76,9 +76,9 @@ func baseConfig(l prorate.Limiter) prorate.Config {
 	}
 }
 
-// invoke runs the unary interceptor for fullMethod and returns the handler
-// error plus captured headers.
-func invoke(t *testing.T, cfg prorate.Config, fullMethod string) (error, metadata.MD, bool) {
+// invoke runs the unary interceptor for fullMethod and returns the
+// captured headers, whether the handler ran, and the handler error.
+func invoke(t *testing.T, cfg prorate.Config, fullMethod string) (metadata.MD, bool, error) {
 	t.Helper()
 	interceptor, err := prorate.UnaryServerInterceptor(cfg)
 	if err != nil {
@@ -91,7 +91,7 @@ func invoke(t *testing.T, cfg prorate.Config, fullMethod string) (error, metadat
 		handlerCalled = true
 		return "ok", nil
 	})
-	return err, sts.md, handlerCalled
+	return sts.md, handlerCalled, err
 }
 
 func TestUnaryAllowSetsHeaders(t *testing.T) {
@@ -99,7 +99,7 @@ func TestUnaryAllowSetsHeaders(t *testing.T) {
 	cfg := baseConfig(lim)
 	cfg.Registry = testRegistry(t)
 
-	err, md, handlerCalled := invoke(t, cfg, "/test.v1.AnnotatedService/Inherit")
+	md, handlerCalled, err := invoke(t, cfg, "/test.v1.AnnotatedService/Inherit")
 	if err != nil || !handlerCalled {
 		t.Fatalf("allow: err=%v handlerCalled=%v", err, handlerCalled)
 	}
@@ -127,7 +127,7 @@ func TestUnaryDeny(t *testing.T) {
 	var denied *prorate.DenyInfo
 	cfg.OnDeny = func(ctx context.Context, info prorate.DenyInfo) { denied = &info }
 
-	err, md, handlerCalled := invoke(t, cfg, "/test.v1.AnnotatedService/Intensive")
+	md, handlerCalled, err := invoke(t, cfg, "/test.v1.AnnotatedService/Intensive")
 	if handlerCalled {
 		t.Fatal("handler called on deny")
 	}
@@ -167,7 +167,7 @@ func TestUnaryExemptAndSkipPassthrough(t *testing.T) {
 	cfg.Registry = testRegistry(t)
 
 	// Exempt method: no limiter call, no headers.
-	err, md, handlerCalled := invoke(t, cfg, "/test.v1.AnnotatedService/Health")
+	md, handlerCalled, err := invoke(t, cfg, "/test.v1.AnnotatedService/Health")
 	if err != nil || !handlerCalled {
 		t.Fatalf("exempt: err=%v handlerCalled=%v", err, handlerCalled)
 	}
@@ -177,7 +177,7 @@ func TestUnaryExemptAndSkipPassthrough(t *testing.T) {
 
 	// KeyFunc skip: same passthrough.
 	cfg.KeyFunc = func(ctx context.Context, fullMethod string) (string, bool) { return "", true }
-	err, md, handlerCalled = invoke(t, cfg, "/test.v1.AnnotatedService/Inherit")
+	md, handlerCalled, err = invoke(t, cfg, "/test.v1.AnnotatedService/Inherit")
 	if err != nil || !handlerCalled || len(md) != 0 || lim.calls != 0 {
 		t.Errorf("skip: err=%v handlerCalled=%v headers=%v calls=%d", err, handlerCalled, md, lim.calls)
 	}
@@ -189,7 +189,7 @@ func TestUnaryZeroLimitIsUnlimited(t *testing.T) {
 	cfg.Registry = testRegistry(t)
 	cfg.LimitFunc = func(ctx context.Context, key, tier string) prorate.Limit { return prorate.Limit{} }
 
-	err, _, handlerCalled := invoke(t, cfg, "/test.v1.AnnotatedService/Inherit")
+	_, handlerCalled, err := invoke(t, cfg, "/test.v1.AnnotatedService/Inherit")
 	if err != nil || !handlerCalled || lim.calls != 0 {
 		t.Errorf("zero limit: err=%v handlerCalled=%v calls=%d, want passthrough", err, handlerCalled, lim.calls)
 	}
@@ -203,7 +203,7 @@ func TestUnaryFailOpenAndClosed(t *testing.T) {
 	cfg.OnError = func(ctx context.Context, fullMethod string, err error) { gotErr = err }
 
 	// FailOpen (default): request goes through.
-	err, md, handlerCalled := invoke(t, cfg, "/test.v1.AnnotatedService/Inherit")
+	md, handlerCalled, err := invoke(t, cfg, "/test.v1.AnnotatedService/Inherit")
 	if err != nil || !handlerCalled {
 		t.Fatalf("fail-open: err=%v handlerCalled=%v", err, handlerCalled)
 	}
@@ -216,7 +216,7 @@ func TestUnaryFailOpenAndClosed(t *testing.T) {
 
 	// FailClosed: Unavailable, not ResourceExhausted.
 	cfg.FailureMode = prorate.FailClosed
-	err, _, handlerCalled = invoke(t, cfg, "/test.v1.AnnotatedService/Inherit")
+	_, handlerCalled, err = invoke(t, cfg, "/test.v1.AnnotatedService/Inherit")
 	if handlerCalled {
 		t.Fatal("fail-closed: handler called")
 	}
@@ -230,7 +230,7 @@ func TestUnaryUnregisteredMethodGetsDefaultTier(t *testing.T) {
 	cfg := baseConfig(lim)
 	cfg.Registry = testRegistry(t)
 
-	err, _, handlerCalled := invoke(t, cfg, "/some.other.Service/Method")
+	_, handlerCalled, err := invoke(t, cfg, "/some.other.Service/Method")
 	if err != nil || !handlerCalled {
 		t.Fatalf("err=%v handlerCalled=%v", err, handlerCalled)
 	}
@@ -245,7 +245,7 @@ func TestUnaryDisableHeaders(t *testing.T) {
 	cfg.Registry = testRegistry(t)
 	cfg.DisableHeaders = true
 
-	_, md, _ := invoke(t, cfg, "/test.v1.AnnotatedService/Inherit")
+	md, _, _ := invoke(t, cfg, "/test.v1.AnnotatedService/Inherit")
 	if len(md) != 0 {
 		t.Errorf("headers emitted with DisableHeaders: %v", md)
 	}
@@ -378,11 +378,11 @@ func TestEndToEndWithMemLimiter(t *testing.T) {
 		return prorate.Limit{Rate: 10, Period: time.Minute, Burst: 2}
 	}
 	for i := 0; i < 2; i++ {
-		if err, _, _ := invoke(t, cfg, "/test.v1.AnnotatedService/Inherit"); err != nil {
+		if _, _, err := invoke(t, cfg, "/test.v1.AnnotatedService/Inherit"); err != nil {
 			t.Fatalf("request %d: %v", i+1, err)
 		}
 	}
-	err, md, _ := invoke(t, cfg, "/test.v1.AnnotatedService/Inherit")
+	md, _, err := invoke(t, cfg, "/test.v1.AnnotatedService/Inherit")
 	if status.Code(err) != codes.ResourceExhausted {
 		t.Fatalf("third request = %v, want ResourceExhausted", err)
 	}
