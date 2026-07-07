@@ -3,7 +3,7 @@ package prorate
 import (
 	"fmt"
 	"iter"
-	"sort"
+	"slices"
 
 	"google.golang.org/grpc"
 	"google.golang.org/protobuf/proto"
@@ -45,7 +45,8 @@ type registryOptions struct {
 	resolver protodesc.Resolver
 }
 
-// RegistryOption configures FromServer / FromFiles.
+// RegistryOption configures FromServer. FromFiles and
+// FromFileDescriptorSet take explicit descriptors and have no options.
 type RegistryOption func(*registryOptions)
 
 // WithResolver overrides the descriptor source used by FromServer.
@@ -67,7 +68,7 @@ func FromServer(srv ServiceInfoProvider, opts ...RegistryOption) (*Registry, err
 	for name := range srv.GetServiceInfo() {
 		names = append(names, name)
 	}
-	sort.Strings(names)
+	slices.Sort(names)
 	return fromResolver(o.resolver, names)
 }
 
@@ -78,7 +79,7 @@ func FromServer(srv ServiceInfoProvider, opts ...RegistryOption) (*Registry, err
 //
 // This is the entry point for offline tooling (e.g. docs generation from
 // a compiled proto descriptor set) and for tests.
-func FromFiles(files *protoregistry.Files, serviceNames []string, opts ...RegistryOption) (*Registry, error) {
+func FromFiles(files *protoregistry.Files, serviceNames []string) (*Registry, error) {
 	if files == nil {
 		return nil, fmt.Errorf("prorate: FromFiles requires a non-nil *protoregistry.Files")
 	}
@@ -90,7 +91,7 @@ func FromFiles(files *protoregistry.Files, serviceNames []string, opts ...Regist
 			}
 			return true
 		})
-		sort.Strings(serviceNames)
+		slices.Sort(serviceNames)
 	}
 	return fromResolver(files, serviceNames)
 }
@@ -98,12 +99,12 @@ func FromFiles(files *protoregistry.Files, serviceNames []string, opts ...Regist
 // FromFileDescriptorSet builds a registry from a compiled
 // descriptorpb.FileDescriptorSet (e.g. an Envoy proto_descriptor.pb).
 // serviceNames semantics match FromFiles.
-func FromFileDescriptorSet(fds *descriptorpb.FileDescriptorSet, serviceNames []string, opts ...RegistryOption) (*Registry, error) {
+func FromFileDescriptorSet(fds *descriptorpb.FileDescriptorSet, serviceNames []string) (*Registry, error) {
 	files, err := protodesc.NewFiles(fds)
 	if err != nil {
 		return nil, fmt.Errorf("prorate: building files from descriptor set: %w", err)
 	}
-	return FromFiles(files, serviceNames, opts...)
+	return FromFiles(files, serviceNames)
 }
 
 // fromResolver resolves each named service against the resolver and

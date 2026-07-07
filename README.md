@@ -99,9 +99,13 @@ grpc-gateway's numbers).
 
 Resolution precedence per method: **method `tier` → service
 `default_tier` → `Config.DefaultTier`**. `exempt: true` wins over
-everything. Tier names are free-form strings — you define the vocabulary —
-and every referenced tier must appear in `Config.KnownTiers` or the
-interceptor constructor errors.
+everything. Methods missing from the registry entirely (e.g. a service
+registered after the registry was built, or the reflection service) get
+`Config.DefaultTier`, which is why it is always required. Tier names are
+free-form strings — you define the vocabulary — except that `/`, `{`, and
+`}` are rejected (tiers become part of the bucket key), and every
+referenced tier must appear in `Config.KnownTiers` or the interceptor
+constructor errors.
 
 ## What clients see
 
@@ -165,15 +169,21 @@ and prove it correct with the exported conformance suite:
 
 ```go
 func TestConformance(t *testing.T) {
+    clk := limitertest.NewClock()
     limitertest.Run(t, limitertest.Config{
-        NewLimiter: func(t *testing.T) prorate.Limiter { return mybackend.New() },
-        Advance:    nil, // or drive your fake clock
+        NewLimiter: func(t *testing.T) prorate.Limiter {
+            return mybackend.New(mybackend.WithNow(clk.Now))
+        },
+        Advance: clk.AdvanceFunc(), // nil → real sleeps, coarser assertions
     })
 }
 ```
 
 The suite covers burst exhaustion, steady-state refill, `RetryAfter`
-monotonicity, key isolation, `AllowN` semantics, and concurrent callers.
+monotonicity, key isolation, `AllowN` semantics, concurrent callers, and —
+when the clock is controllable — an exact hand-computed GCRA sequence that
+both built-in backends also run, so every backend provably implements the
+same math.
 
 ## Semantics worth knowing
 
@@ -183,7 +193,8 @@ monotonicity, key isolation, `AllowN` semantics, and concurrent callers.
 - **Streams are checked once at open.** Per-message limiting is out of
   scope in v1.
 - **`AllowN` costs above `Burst` never succeed**: denied with
-  `RetryAfter < 0`, nothing consumed.
+  `RetryAfter < 0`, nothing consumed; `Remaining` and `ResetAfter` still
+  report the real bucket state (the conformance suite enforces this).
 - **Rates are fixed at interceptor construction.** There is no dynamic
   policy reload in v1; `LimitFunc` is the place for runtime variation
   per subject.
@@ -192,6 +203,15 @@ monotonicity, key isolation, `AllowN` semantics, and concurrent callers.
   for docs generation without a running server.
 - **In-memory backend is per-process.** `memlimiter` is for tests and
   single-replica deployments only.
+- **Redis client retries are yours to configure.** The limiter never
+  retries, but a default-configured go-redis client retries failed
+  commands 3 times with backoff before surfacing an error. Set
+  `MaxRetries: -1` on the client if you want the fail-open/closed policy
+  to react to a Redis outage immediately.
+- **KeyFunc should return stable server-side identifiers** (account IDs,
+  API key IDs) — the subject becomes part of the bucket key, and raw
+  client-controlled strings containing `/`, `{`, or `}` can collide with
+  or mis-shard other buckets.
 
 ## Development
 

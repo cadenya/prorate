@@ -2,7 +2,6 @@ package redislimiter_test
 
 import (
 	"context"
-	"sync"
 	"testing"
 	"time"
 
@@ -14,29 +13,6 @@ import (
 	"github.com/cadenya/prorate/redislimiter"
 )
 
-// fakeClock is a mutex-guarded manual clock passed to the limiter via
-// WithNow so miniredis tests are deterministic.
-type fakeClock struct {
-	mu sync.Mutex
-	t  time.Time
-}
-
-func newFakeClock() *fakeClock {
-	return &fakeClock{t: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)}
-}
-
-func (c *fakeClock) Now() time.Time {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.t
-}
-
-func (c *fakeClock) Advance(d time.Duration) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.t = c.t.Add(d)
-}
-
 func newMiniredisClient(t *testing.T) *redis.Client {
 	t.Helper()
 	mr := miniredis.RunT(t)
@@ -45,56 +21,17 @@ func newMiniredisClient(t *testing.T) *redis.Client {
 	return client
 }
 
+// TestConformance runs the full suite — including the exact GCRA sequence
+// shared with memlimiter, proving both implementations of the math agree
+// — against miniredis with the test-only client clock.
 func TestConformance(t *testing.T) {
-	clk := newFakeClock()
+	clk := limitertest.NewClock()
 	limitertest.Run(t, limitertest.Config{
 		NewLimiter: func(t *testing.T) prorate.Limiter {
 			return redislimiter.New(newMiniredisClient(t), redislimiter.WithNow(clk.Now))
 		},
-		Advance: func(t *testing.T, d time.Duration) { clk.Advance(d) },
+		Advance: clk.AdvanceFunc(),
 	})
-}
-
-// TestGCRASequence mirrors the memlimiter hand-computed table so both
-// implementations of the math agree: rate 10/min (emission interval 6s),
-// burst 5.
-func TestGCRASequence(t *testing.T) {
-	clk := newFakeClock()
-	l := redislimiter.New(newMiniredisClient(t), redislimiter.WithNow(clk.Now))
-	limit := prorate.Limit{Rate: 10, Period: time.Minute, Burst: 5}
-	ctx := context.Background()
-
-	steps := []struct {
-		advance    time.Duration
-		allowed    bool
-		remaining  int
-		retryAfter time.Duration
-		resetAfter time.Duration
-	}{
-		{0, true, 4, 0, 6 * time.Second},
-		{0, true, 3, 0, 12 * time.Second},
-		{0, true, 2, 0, 18 * time.Second},
-		{0, true, 1, 0, 24 * time.Second},
-		{0, true, 0, 0, 30 * time.Second},
-		{0, false, 0, 6 * time.Second, 30 * time.Second},
-		{3 * time.Second, false, 0, 3 * time.Second, 27 * time.Second},
-		{3 * time.Second, true, 0, 0, 30 * time.Second},
-		{0, false, 0, 6 * time.Second, 30 * time.Second},
-		{time.Minute, true, 4, 0, 6 * time.Second},
-	}
-	for i, step := range steps {
-		clk.Advance(step.advance)
-		d, err := l.Allow(ctx, "seq", limit)
-		if err != nil {
-			t.Fatalf("step %d: %v", i, err)
-		}
-		if d.Allowed != step.allowed || d.Remaining != step.remaining ||
-			d.RetryAfter != step.retryAfter || d.ResetAfter != step.resetAfter {
-			t.Errorf("step %d: got {allowed:%v remaining:%d retry:%v reset:%v}, want {allowed:%v remaining:%d retry:%v reset:%v}",
-				i, d.Allowed, d.Remaining, d.RetryAfter, d.ResetAfter,
-				step.allowed, step.remaining, step.retryAfter, step.resetAfter)
-		}
-	}
 }
 
 // TestKeyLayout checks the prefix + hash tag key shape lands in Redis.
@@ -102,7 +39,7 @@ func TestKeyLayout(t *testing.T) {
 	mr := miniredis.RunT(t)
 	client := redis.NewClient(&redis.Options{Addr: mr.Addr()})
 	defer client.Close()
-	clk := newFakeClock()
+	clk := limitertest.NewClock()
 
 	l := redislimiter.New(client, redislimiter.WithNow(clk.Now))
 	if _, err := l.Allow(context.Background(), "acct-1/standard", prorate.Limit{Rate: 1, Period: time.Second, Burst: 1}); err != nil {
@@ -126,7 +63,7 @@ func TestIdleKeyExpiry(t *testing.T) {
 	mr := miniredis.RunT(t)
 	client := redis.NewClient(&redis.Options{Addr: mr.Addr()})
 	defer client.Close()
-	clk := newFakeClock()
+	clk := limitertest.NewClock()
 
 	l := redislimiter.New(client, redislimiter.WithNow(clk.Now))
 	limit := prorate.Limit{Rate: 10, Period: time.Minute, Burst: 5}
@@ -144,11 +81,32 @@ func TestIdleKeyExpiry(t *testing.T) {
 	}
 }
 
+// TestOversizedRequestLeavesNoState checks that n > Burst never writes a
+// bucket key (denied without consuming).
+func TestOversizedRequestLeavesNoState(t *testing.T) {
+	mr := miniredis.RunT(t)
+	client := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	defer client.Close()
+	clk := limitertest.NewClock()
+
+	l := redislimiter.New(client, redislimiter.WithNow(clk.Now))
+	d, err := l.AllowN(context.Background(), "big", prorate.Limit{Rate: 10, Period: time.Minute, Burst: 5}, 6)
+	if err != nil || d.Allowed {
+		t.Fatalf("AllowN(6) = (%+v, %v), want denied without error", d, err)
+	}
+	if d.RetryAfter >= 0 {
+		t.Errorf("RetryAfter = %v, want negative", d.RetryAfter)
+	}
+	if mr.Exists("prorate:{big}") {
+		t.Error("oversized request wrote bucket state")
+	}
+}
+
 // TestBackendErrorSurfaces checks a dead backend returns an error, never a
 // silent deny/allow.
 func TestBackendErrorSurfaces(t *testing.T) {
 	mr := miniredis.RunT(t)
-	client := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	client := redis.NewClient(&redis.Options{Addr: mr.Addr(), MaxRetries: -1})
 	defer client.Close()
 	mr.Close()
 

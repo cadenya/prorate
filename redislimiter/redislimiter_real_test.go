@@ -5,7 +5,9 @@ package redislimiter_test
 import (
 	"context"
 	"os"
+	"strconv"
 	"testing"
+	"time"
 
 	"github.com/redis/go-redis/v9"
 
@@ -29,16 +31,16 @@ func TestConformanceRealRedis(t *testing.T) {
 	if err := client.Ping(context.Background()).Err(); err != nil {
 		t.Fatalf("redis at %s unavailable: %v", addr, err)
 	}
-	// Start from a clean slate so reruns against a shared Redis are stable.
-	if err := client.FlushDB(context.Background()).Err(); err != nil {
-		t.Fatalf("flushdb: %v", err)
-	}
+	// A run-unique, per-subtest prefix isolates state from other runs and
+	// subtests without ever touching keys the test did not create; bucket
+	// keys self-evict via PEXPIRE.
+	runID := strconv.FormatInt(time.Now().UnixNano(), 36)
 	limitertest.Run(t, limitertest.Config{
 		NewLimiter: func(t *testing.T) prorate.Limiter {
-			// Distinct prefix per subtest so state never leaks between them.
 			return redislimiter.New(client, redislimiter.WithKeyPrefix(
-				"prorate-conformance:"+t.Name()+":"))
+				"prorate-conformance:"+runID+":"+t.Name()+":"))
 		},
-		// Advance nil → real sleeps against server time.
+		// Advance nil → real sleeps against server time; the suite uses a
+		// coarse limit and skips the exact-sequence subtest.
 	})
 }

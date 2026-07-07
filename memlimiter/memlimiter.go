@@ -2,6 +2,11 @@
 // prorate. It has zero dependencies beyond the standard library and is
 // intended for tests and single-replica deployments: state is per-process
 // and is not shared across replicas.
+//
+// All keys share one mutex, so throughput tops out around single-core
+// map-operation speed regardless of GOMAXPROCS. That is far beyond what a
+// single-replica gRPC server needs; use redislimiter (or a sharded custom
+// Limiter) where the limiter itself must scale.
 package memlimiter
 
 import (
@@ -70,28 +75,24 @@ func (l *Limiter) AllowN(_ context.Context, key string, limit prorate.Limit, n i
 	}
 	now := l.now()
 	ei := limit.EmissionInterval()
-	tolerance := time.Duration(limit.Burst) * ei
-
-	if n > limit.Burst {
-		// Can never succeed at this limit; deny without touching state.
-		l.mu.Lock()
-		tat := l.effectiveTAT(key, now)
-		l.mu.Unlock()
-		return decision(false, limit, tat, now, ei, tolerance, -1), nil
-	}
 
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.maybeSweep(now)
 
 	tat := l.effectiveTAT(key, now)
+	if n > limit.Burst {
+		// Can never succeed at this limit; deny without touching state
+		// but still report the real bucket state.
+		return decision(false, limit, tat, now, -1), nil
+	}
 	newTAT := tat.Add(time.Duration(n) * ei)
-	allowAt := newTAT.Add(-tolerance)
+	allowAt := newTAT.Add(-time.Duration(limit.Burst) * ei)
 	if allowAt.After(now) {
-		return decision(false, limit, tat, now, ei, tolerance, allowAt.Sub(now)), nil
+		return decision(false, limit, tat, now, allowAt.Sub(now)), nil
 	}
 	l.tats[key] = newTAT
-	return decision(true, limit, newTAT, now, ei, tolerance, 0), nil
+	return decision(true, limit, newTAT, now, 0), nil
 }
 
 // effectiveTAT returns the stored TAT clamped to now. Callers must hold mu.
@@ -103,15 +104,11 @@ func (l *Limiter) effectiveTAT(key string, now time.Time) time.Time {
 }
 
 // decision computes the bookkeeping fields shared by allow and deny.
-func decision(allowed bool, limit prorate.Limit, tat, now time.Time, ei, tolerance, retryAfter time.Duration) prorate.Decision {
-	remaining := int((tolerance - tat.Sub(now)) / ei)
-	if remaining < 0 {
-		remaining = 0
-	}
-	resetAfter := tat.Sub(now)
-	if resetAfter < 0 {
-		resetAfter = 0
-	}
+func decision(allowed bool, limit prorate.Limit, tat, now time.Time, retryAfter time.Duration) prorate.Decision {
+	ei := limit.EmissionInterval()
+	tolerance := time.Duration(limit.Burst) * ei
+	remaining := max(int((tolerance-tat.Sub(now))/ei), 0)
+	resetAfter := max(tat.Sub(now), 0)
 	return prorate.Decision{
 		Allowed:    allowed,
 		Limit:      limit,

@@ -50,19 +50,17 @@ func (l Limit) Validate() error {
 	if l.Burst < 1 {
 		return fmt.Errorf("prorate: Limit.Burst must be >= 1, got %d", l.Burst)
 	}
+	if l.Period/time.Duration(l.Rate) <= 0 {
+		return fmt.Errorf("prorate: Limit{Rate: %d, Period: %v} has a sub-nanosecond emission interval", l.Rate, l.Period)
+	}
 	return nil
 }
 
-// emissionInterval is the GCRA emission interval: the steady-state spacing
-// between events at exactly Rate per Period.
-func (l Limit) emissionInterval() time.Duration {
-	return l.Period / time.Duration(l.Rate)
-}
-
 // EmissionInterval returns the steady-state spacing between events
-// (Period / Rate). Exposed for Limiter implementations.
+// (Period / Rate). Exposed for Limiter implementations. It is > 0 for any
+// limit that passes Validate.
 func (l Limit) EmissionInterval() time.Duration {
-	return l.emissionInterval()
+	return l.Period / time.Duration(l.Rate)
 }
 
 // Decision is the outcome of a Limiter call.
@@ -76,7 +74,8 @@ type Decision struct {
 	Remaining int
 	// RetryAfter is how long the caller must wait before a request of the
 	// same cost can succeed. Zero when allowed. A negative value means the
-	// request can never succeed at this limit (its cost exceeds Burst).
+	// request can never succeed at this limit (its cost exceeds Burst);
+	// Remaining and ResetAfter still report the real bucket state.
 	RetryAfter time.Duration
 	// ResetAfter is the time until the bucket fully drains back to idle.
 	ResetAfter time.Duration

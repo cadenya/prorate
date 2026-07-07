@@ -27,7 +27,8 @@ import (
 //	ARGV[4] = now override (µs) — empty in production, set only by tests;
 //	          when empty the script uses Redis server TIME.
 //
-// Returns {allowed(0|1), remaining, retry_after µs, reset_after µs}.
+// Returns {allowed(0|1), remaining, retry_after µs, reset_after µs};
+// retry_after is -1 when the request can never succeed (n > burst).
 var gcraScript = redis.NewScript(`
 local ei = tonumber(ARGV[1])
 local burst = tonumber(ARGV[2])
@@ -46,17 +47,22 @@ if not tat or tat < now then
 end
 
 local tolerance = burst * ei
-local new_tat = tat + n * ei
-local allow_at = new_tat - tolerance
-
 local allowed = 0
 local retry_after = 0
-if allow_at <= now then
-  allowed = 1
-  tat = new_tat
-  redis.call('SET', KEYS[1], tat, 'PX', math.ceil((tat - now) / 1000))
+if n > burst then
+  -- Can never succeed at this limit; deny without touching state but
+  -- still report the real bucket state below.
+  retry_after = -1
 else
-  retry_after = allow_at - now
+  local new_tat = tat + n * ei
+  local allow_at = new_tat - tolerance
+  if allow_at <= now then
+    allowed = 1
+    tat = new_tat
+    redis.call('SET', KEYS[1], tat, 'PX', math.ceil((tat - now) / 1000))
+  else
+    retry_after = allow_at - now
+  end
 end
 
 local remaining = math.floor((now + tolerance - tat) / ei)
@@ -85,18 +91,22 @@ func WithKeyPrefix(prefix string) Option {
 	return func(l *Limiter) { l.prefix = prefix }
 }
 
-// WithNow overrides the time source, passing the client clock into the
-// script instead of using Redis server TIME. For tests only — production
-// deployments should rely on server time so pod clock skew cannot corrupt
-// decisions.
-func WithNow(now func() time.Time) Option {
+// withNow overrides the time source, passing the client clock into the
+// script instead of using Redis server TIME. Deliberately unexported
+// (exposed to this package's tests via export_test.go): running on client
+// clocks would reintroduce exactly the cross-pod skew corruption that
+// server time exists to prevent.
+func withNow(now func() time.Time) Option {
 	return func(l *Limiter) { l.now = now }
 }
 
 // New returns a limiter backed by client, which may be a redis.Client,
 // redis.ClusterClient, or redis.Ring. Context deadlines are respected and
-// there are no internal retries; the interceptor's fail-open/closed mode
-// handles backend errors.
+// the limiter itself never retries — but note that go-redis retries
+// failed commands MaxRetries times (default 3, with backoff) before
+// returning an error. For fail-fast behavior where the interceptor's
+// fail-open/closed mode reacts promptly to a Redis outage, configure the
+// client with MaxRetries: -1.
 func New(client redis.UniversalClient, opts ...Option) *Limiter {
 	l := &Limiter{client: client, prefix: DefaultKeyPrefix}
 	for _, opt := range opts {
@@ -127,17 +137,13 @@ func (l *Limiter) AllowN(ctx context.Context, key string, limit prorate.Limit, n
 	if ei <= 0 {
 		return prorate.Decision{}, fmt.Errorf("redislimiter: limit %+v has sub-microsecond emission interval", limit)
 	}
-	if n > limit.Burst {
-		// Can never succeed at this limit; deny without touching Redis.
-		return prorate.Decision{Allowed: false, Limit: limit, RetryAfter: -1}, nil
-	}
-
 	nowArg := ""
 	if l.now != nil {
 		nowArg = strconv.FormatInt(l.now().UnixMicro(), 10)
 	}
-	// Hash-tag the caller key so Redis Cluster keeps each subject's bucket
-	// on one slot.
+	// Each bucket is a single key, so any slot placement is correct; the
+	// hash tag makes the slot a pure function of the caller key alone,
+	// independent of the configured prefix.
 	redisKey := l.prefix + "{" + key + "}"
 	res, err := gcraScript.Run(ctx, l.client, []string{redisKey}, ei, limit.Burst, n, nowArg).Int64Slice()
 	if err != nil {

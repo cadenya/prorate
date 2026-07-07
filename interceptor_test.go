@@ -58,12 +58,7 @@ type fakeServerTransportStream struct {
 
 func (f *fakeServerTransportStream) Method() string { return f.method }
 func (f *fakeServerTransportStream) SetHeader(md metadata.MD) error {
-	if f.md == nil {
-		f.md = metadata.MD{}
-	}
-	for k, v := range md {
-		f.md[k] = append(f.md[k], v...)
-	}
+	f.md = metadata.Join(f.md, md)
 	return nil
 }
 func (f *fakeServerTransportStream) SendHeader(md metadata.MD) error { return f.SetHeader(md) }
@@ -280,21 +275,35 @@ func TestConstructorValidation(t *testing.T) {
 			t.Fatal("want error for DefaultTier not in KnownTiers")
 		}
 	})
-	t.Run("MissingDefaultTierWhenNeeded", func(t *testing.T) {
+	t.Run("DefaultTierAlwaysRequired", func(t *testing.T) {
+		// Even when every registry method carries an explicit tier,
+		// DefaultTier is required: it covers methods missing from the
+		// registry entirely, which would otherwise run unlimited.
 		cfg := baseConfig(lim)
-		cfg.Registry = testRegistry(t) // PlainService/Do has no tier
+		cfg.Registry = testRegistry(t, "test.v1.AnnotatedService")
 		cfg.DefaultTier = ""
 		if _, err := prorate.UnaryServerInterceptor(cfg); err == nil {
-			t.Fatal("want error when methods need a default tier and none is set")
+			t.Fatal("want error when DefaultTier is empty")
+		}
+	})
+	t.Run("InvalidTierCharacters", func(t *testing.T) {
+		for _, bad := range []string{"eu/standard", "st{andard", "tier}", ""} {
+			cfg := baseConfig(lim)
+			cfg.Registry = testRegistry(t)
+			cfg.KnownTiers = append(cfg.KnownTiers, bad)
+			if _, err := prorate.UnaryServerInterceptor(cfg); err == nil {
+				t.Errorf("tier %q accepted, want constructor error", bad)
+			}
 		}
 	})
 	t.Run("MissingRequiredFields", func(t *testing.T) {
 		for name, mutate := range map[string]func(*prorate.Config){
-			"Registry":   func(c *prorate.Config) { c.Registry = nil },
-			"Limiter":    func(c *prorate.Config) { c.Limiter = nil },
-			"KeyFunc":    func(c *prorate.Config) { c.KeyFunc = nil },
-			"LimitFunc":  func(c *prorate.Config) { c.LimitFunc = nil },
-			"KnownTiers": func(c *prorate.Config) { c.KnownTiers = nil },
+			"Registry":    func(c *prorate.Config) { c.Registry = nil },
+			"Limiter":     func(c *prorate.Config) { c.Limiter = nil },
+			"KeyFunc":     func(c *prorate.Config) { c.KeyFunc = nil },
+			"LimitFunc":   func(c *prorate.Config) { c.LimitFunc = nil },
+			"KnownTiers":  func(c *prorate.Config) { c.KnownTiers = nil },
+			"DefaultTier": func(c *prorate.Config) { c.DefaultTier = "" },
 		} {
 			cfg := baseConfig(lim)
 			cfg.Registry = testRegistry(t)
@@ -318,12 +327,7 @@ type fakeServerStream struct {
 
 func (f *fakeServerStream) Context() context.Context { return f.ctx }
 func (f *fakeServerStream) SetHeader(md metadata.MD) error {
-	if f.md == nil {
-		f.md = metadata.MD{}
-	}
-	for k, v := range md {
-		f.md[k] = append(f.md[k], v...)
-	}
+	f.md = metadata.Join(f.md, md)
 	return nil
 }
 

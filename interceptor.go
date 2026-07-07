@@ -4,8 +4,9 @@ import (
 	"context"
 	"fmt"
 	"math"
-	"sort"
+	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"google.golang.org/genproto/googleapis/rpc/errdetails"
@@ -46,7 +47,10 @@ type Config struct {
 	// KeyFunc extracts the rate-limit subject (e.g. account ID) from the
 	// request context. skip=true bypasses limiting for this request
 	// (e.g. unauthenticated methods handled elsewhere, internal callers).
-	// Required.
+	// Return stable server-side identifiers, not raw client input: the
+	// subject becomes part of the limiter bucket key, and subjects
+	// containing '/', '{', or '}' can collide with or mis-shard other
+	// buckets. Required.
 	KeyFunc func(ctx context.Context, fullMethod string) (key string, skip bool)
 
 	// LimitFunc maps (subject, tier) to an effective Limit. This is where
@@ -63,7 +67,10 @@ type Config struct {
 	KnownTiers []string
 
 	// DefaultTier is applied when neither the method nor its service set
-	// a tier. Required if any registry method lacks one.
+	// a tier, and to any method missing from the Registry entirely (e.g.
+	// a service registered after the registry was built). Required and
+	// must appear in KnownTiers: without it, an unregistered method would
+	// resolve to a tier LimitFunc does not understand and run unlimited.
 	DefaultTier string
 
 	// FailureMode selects FailOpen (zero value) or FailClosed behavior on
@@ -109,19 +116,25 @@ func (c *Config) validate() error {
 	}
 	known := make(map[string]bool, len(c.KnownTiers))
 	for _, t := range c.KnownTiers {
+		// The tier becomes part of the limiter bucket key (key + "/" +
+		// tier); these characters would make distinct (subject, tier)
+		// pairs collide or corrupt Redis Cluster hash tags.
+		if strings.ContainsAny(t, "/{}") || t == "" {
+			return fmt.Errorf("prorate: tier name %q is invalid: tiers must be non-empty and must not contain '/', '{', or '}'", t)
+		}
 		known[t] = true
 	}
-	if c.DefaultTier != "" && !known[c.DefaultTier] {
-		return fmt.Errorf("prorate: DefaultTier %q is not in KnownTiers %v", c.DefaultTier, sorted(c.KnownTiers))
+	// DefaultTier is required unconditionally: it also covers methods
+	// missing from the Registry entirely, which validate() cannot see.
+	if c.DefaultTier == "" {
+		return fmt.Errorf("prorate: Config.DefaultTier is required (it applies to methods without a tier annotation and to methods not present in the Registry)")
+	}
+	if !known[c.DefaultTier] {
+		return fmt.Errorf("prorate: DefaultTier %q is not in KnownTiers %v", c.DefaultTier, slices.Sorted(slices.Values(c.KnownTiers)))
 	}
 	var unknown []string
-	needsDefault := false
 	for method, p := range c.Registry.Policies() {
-		if p.Exempt {
-			continue
-		}
-		if p.Tier == "" {
-			needsDefault = true
+		if p.Exempt || p.Tier == "" {
 			continue
 		}
 		if !known[p.Tier] {
@@ -129,19 +142,10 @@ func (c *Config) validate() error {
 		}
 	}
 	if len(unknown) > 0 {
-		sort.Strings(unknown)
-		return fmt.Errorf("prorate: annotations reference tiers not in KnownTiers %v: %v", sorted(c.KnownTiers), unknown)
-	}
-	if needsDefault && c.DefaultTier == "" {
-		return fmt.Errorf("prorate: some methods have no tier annotation and Config.DefaultTier is empty")
+		slices.Sort(unknown)
+		return fmt.Errorf("prorate: annotations reference tiers not in KnownTiers %v: %v", slices.Sorted(slices.Values(c.KnownTiers)), unknown)
 	}
 	return nil
-}
-
-func sorted(s []string) []string {
-	out := append([]string(nil), s...)
-	sort.Strings(out)
-	return out
 }
 
 // UnaryServerInterceptor returns a unary interceptor enforcing the
@@ -180,13 +184,11 @@ func StreamServerInterceptor(cfg Config) (grpc.StreamServerInterceptor, error) {
 // KeyFunc, LimitFunc, limiter call, headers, and error mapping. A nil
 // return means the request may proceed.
 func (c *Config) check(ctx context.Context, fullMethod string, setHeader func(metadata.MD) error) error {
-	policy, ok := c.Registry.Policy(fullMethod)
-	if !ok {
-		// Methods absent from the registry (e.g. services registered after
-		// the registry was built) get the global default tier: safe by
-		// default, never silently unlimited.
-		policy = Policy{}
-	}
+	// Methods absent from the registry (e.g. services registered after
+	// the registry was built) get the zero Policy and fall through to
+	// DefaultTier below — safe by default, never silently unlimited.
+	// validate() guarantees DefaultTier is set and known.
+	policy, _ := c.Registry.Policy(fullMethod)
 	if policy.Exempt {
 		return nil
 	}

@@ -45,7 +45,7 @@ message MethodPolicy {
 
 // ServicePolicy configures rate limit defaults for all methods of a service.
 message ServicePolicy {
-  // Default tier for all methods in this service that do not set their own
-  // MethodPolicy.
+  // Default tier for every method in this service that does not set a
+  // non-empty tier (or exempt) in its own MethodPolicy.
   string default_tier = 1;
 }

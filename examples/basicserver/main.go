@@ -4,10 +4,14 @@
 //
 //	go run ./examples/basicserver
 //
-// Then hammer it with grpcurl (the subject is read from the x-account-id
+// The server registers the gRPC reflection service, so grpcurl works out
+// of the box (the rate limit subject is read from the x-account-id
 // metadata header):
 //
 //	grpcurl -plaintext -H 'x-account-id: acct-1' localhost:50051 test.v1.AnnotatedService/Intensive
+//
+// Repeat it a few times quickly to see RESOURCE_EXHAUSTED with a
+// retry-after header.
 package main
 
 import (
@@ -18,6 +22,7 @@ import (
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/reflection"
 
 	"github.com/cadenya/prorate"
 	testv1 "github.com/cadenya/prorate/internal/testdata/gen/test/v1"
@@ -57,10 +62,21 @@ func (server) Watch(_ *testv1.WatchRequest, stream grpc.ServerStreamingServer[te
 	return nil
 }
 
+// registerServices is the single place services are registered. Both the
+// throwaway registry-building server and the real server use it, so the
+// two can never drift: a service added here is automatically covered by
+// the registry and validated at startup.
+func registerServices(r grpc.ServiceRegistrar) {
+	testv1.RegisterAnnotatedServiceServer(r, server{})
+}
+
 func main() {
-	// 1. Register services first — the registry reflects over them.
+	// 1. Build the policy registry by reflecting over the registered
+	// services. gRPC servers take interceptors at construction, so use a
+	// throwaway server for registration order; registerServices keeps it
+	// in lockstep with the real one.
 	preflight := grpc.NewServer()
-	testv1.RegisterAnnotatedServiceServer(preflight, server{})
+	registerServices(preflight)
 	registry, err := prorate.FromServer(preflight)
 	if err != nil {
 		log.Fatalf("building registry: %v", err)
@@ -93,12 +109,15 @@ func main() {
 		log.Fatalf("building stream interceptor: %v", err)
 	}
 
-	// 3. The real server, with limiting installed.
+	// 3. The real server, with limiting installed. The reflection service
+	// is not in the registry, so its methods fall through to DefaultTier —
+	// safe by default.
 	srv := grpc.NewServer(
 		grpc.ChainUnaryInterceptor(unary),
 		grpc.ChainStreamInterceptor(stream),
 	)
-	testv1.RegisterAnnotatedServiceServer(srv, server{})
+	registerServices(srv)
+	reflection.Register(srv)
 
 	lis, err := net.Listen("tcp", ":50051")
 	if err != nil {

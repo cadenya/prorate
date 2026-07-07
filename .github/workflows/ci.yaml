@@ -13,13 +13,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # buf-action runs lint on every event and breaking against the PR
+      # base using the workflow token (works for private repos, unlike a
+      # raw anonymous https git input).
       - uses: bufbuild/buf-action@v1
         with:
-          setup_only: true
-      - run: buf lint
-      - name: buf breaking
-        if: github.event_name == 'pull_request'
-        run: buf breaking --against "https://github.com/${GITHUB_REPOSITORY}.git#branch=main"
+          lint: true
+          format: false
+          breaking: ${{ github.event_name == 'pull_request' }}
+          push: false
+          archive: false
 
   test:
     runs-on: ubuntu-latest

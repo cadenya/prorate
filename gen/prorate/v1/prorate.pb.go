@@ -96,8 +96,8 @@ func (x *MethodPolicy) GetExempt() bool {
 // ServicePolicy configures rate limit defaults for all methods of a service.
 type ServicePolicy struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Default tier for all methods in this service that do not set their own
-	// MethodPolicy.
+	// Default tier for every method in this service that does not set a
+	// non-empty tier (or exempt) in its own MethodPolicy.
 	DefaultTier   string `protobuf:"bytes,1,opt,name=default_tier,json=defaultTier,proto3" json:"default_tier,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
