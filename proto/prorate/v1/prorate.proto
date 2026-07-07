@@ -1,0 +1,51 @@
+// Copyright 2026 Cadenya, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+syntax = "proto3";
+
+package prorate.v1;
+
+import "google/protobuf/descriptor.proto";
+
+option go_package = "github.com/cadenya/prorate/gen/prorate/v1;proratev1";
+
+extend google.protobuf.MethodOptions {
+  // Per-method rate limit policy. Takes precedence over the service-level
+  // default_tier.
+  MethodPolicy method_policy = 51000;
+}
+
+extend google.protobuf.ServiceOptions {
+  // Service-wide rate limit defaults, applied to methods that do not set
+  // their own MethodPolicy.
+  ServicePolicy service_policy = 51000;
+}
+
+// MethodPolicy configures rate limiting for a single RPC method.
+message MethodPolicy {
+  // Named tier, resolved against the rate table configured on the
+  // interceptor. Unknown names fail at startup.
+  string tier = 1;
+
+  // Exempt this method entirely (health checks, etc.). Wins over any tier
+  // configured here or at the service level.
+  bool exempt = 2;
+}
+
+// ServicePolicy configures rate limit defaults for all methods of a service.
+message ServicePolicy {
+  // Default tier for all methods in this service that do not set their own
+  // MethodPolicy.
+  string default_tier = 1;
+}

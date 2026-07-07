@@ -1,0 +1,10 @@
+version: v2
+inputs:
+  - directory: internal/testdata/proto
+plugins:
+  - remote: buf.build/protocolbuffers/go
+    out: internal/testdata/gen
+    opt: paths=source_relative
+  - remote: buf.build/grpc/go
+    out: internal/testdata/gen
+    opt: paths=source_relative

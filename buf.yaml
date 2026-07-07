@@ -1,0 +1,14 @@
+version: v2
+modules:
+  - path: proto
+    name: buf.build/cadenya/prorate
+    lint:
+      use:
+        - STANDARD
+    breaking:
+      use:
+        - FILE
+  - path: internal/testdata/proto
+    lint:
+      use:
+        - BASIC

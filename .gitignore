@@ -1,0 +1,9 @@
+# Build and coverage artifacts
+/coverage.out
+/dist/
+
+# Editor noise
+.idea/
+.vscode/
+*.swp
+.DS_Store

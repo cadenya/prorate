@@ -1,0 +1,54 @@
+syntax = "proto3";
+
+package test.v1;
+
+import "prorate/v1/prorate.proto";
+
+option go_package = "github.com/cadenya/prorate/internal/testdata/gen/test/v1;testv1";
+
+// AnnotatedService exercises every annotation shape: a service-level
+// default tier, a method-level tier override, an exempt method, and a
+// streaming method.
+service AnnotatedService {
+  option (prorate.v1.service_policy) = {default_tier: "standard"};
+
+  rpc Intensive(IntensiveRequest) returns (IntensiveResponse) {
+    option (prorate.v1.method_policy) = {tier: "intensive"};
+  }
+  rpc Inherit(InheritRequest) returns (InheritResponse);
+  rpc Health(HealthRequest) returns (HealthResponse) {
+    option (prorate.v1.method_policy) = {exempt: true};
+  }
+  rpc Watch(WatchRequest) returns (stream WatchResponse) {
+    option (prorate.v1.method_policy) = {tier: "intensive"};
+  }
+}
+
+// PlainService has no annotations at all; every method falls through to
+// the interceptor-configured global default tier.
+service PlainService {
+  rpc Do(DoRequest) returns (DoResponse);
+}
+
+// TypoService references a tier that no consumer configures; used to test
+// startup validation failure.
+service TypoService {
+  rpc Bad(BadRequest) returns (BadResponse) {
+    option (prorate.v1.method_policy) = {tier: "intensiv"};
+  }
+}
+
+message IntensiveRequest {}
+message IntensiveResponse {}
+message InheritRequest {}
+message InheritResponse {}
+message HealthRequest {}
+message HealthResponse {}
+message WatchRequest {}
+message WatchResponse {
+  string tick = 1;
+}
+message DoRequest {}
+message DoResponse {}
+message BadRequest {}
+message BadResponse {}
