@@ -18,7 +18,7 @@ package prorate.v1;
 
 import "google/protobuf/descriptor.proto";
 
-option go_package = "github.com/cadenya/prorate/gen/prorate/v1;proratev1";
+option go_package = "go.cadenya.com/prorate/gen/prorate/v1;proratev1";
 
 extend google.protobuf.MethodOptions {
   // Per-method rate limit policy. Takes precedence over the service-level

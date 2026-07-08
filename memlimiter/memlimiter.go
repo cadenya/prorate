@@ -15,7 +15,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cadenya/prorate"
+	"go.cadenya.com/prorate"
 )
 
 // sweepInterval bounds how often the lazy eviction pass runs.

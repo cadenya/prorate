@@ -15,7 +15,7 @@ import (
 
 	"github.com/redis/go-redis/v9"
 
-	"github.com/cadenya/prorate"
+	"go.cadenya.com/prorate"
 )
 
 // gcraScript implements GCRA in Redis. Time is in integer microseconds.

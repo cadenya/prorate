@@ -10,8 +10,8 @@ import (
 	"google.golang.org/protobuf/reflect/protoregistry"
 	"google.golang.org/protobuf/types/descriptorpb"
 
-	"github.com/cadenya/prorate"
-	testv1 "github.com/cadenya/prorate/internal/testdata/gen/test/v1"
+	"go.cadenya.com/prorate"
+	testv1 "go.cadenya.com/prorate/internal/testdata/gen/test/v1"
 )
 
 // testFiles returns a protoregistry.Files containing the testdata file and

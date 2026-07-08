@@ -11,9 +11,9 @@ import (
 
 	"github.com/redis/go-redis/v9"
 
-	"github.com/cadenya/prorate"
-	"github.com/cadenya/prorate/limitertest"
-	"github.com/cadenya/prorate/redislimiter"
+	"go.cadenya.com/prorate"
+	"go.cadenya.com/prorate/limitertest"
+	"go.cadenya.com/prorate/redislimiter"
 )
 
 // TestConformanceRealRedis runs the conformance suite against a real

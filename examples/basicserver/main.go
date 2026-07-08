@@ -24,9 +24,9 @@ import (
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/reflection"
 
-	"github.com/cadenya/prorate"
-	testv1 "github.com/cadenya/prorate/internal/testdata/gen/test/v1"
-	"github.com/cadenya/prorate/memlimiter"
+	"go.cadenya.com/prorate"
+	testv1 "go.cadenya.com/prorate/internal/testdata/gen/test/v1"
+	"go.cadenya.com/prorate/memlimiter"
 )
 
 // rates is the consumer-owned tier table. In a real deployment LimitFunc

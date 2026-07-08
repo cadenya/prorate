@@ -189,7 +189,7 @@ const file_prorate_v1_prorate_proto_rawDesc = "" +
 	"\rServicePolicy\x12!\n" +
 	"\fdefault_tier\x18\x01 \x01(\tR\vdefaultTier:_\n" +
 	"\rmethod_policy\x12\x1e.google.protobuf.MethodOptions\x18\xb8\x8e\x03 \x01(\v2\x18.prorate.v1.MethodPolicyR\fmethodPolicy:c\n" +
-	"\x0eservice_policy\x12\x1f.google.protobuf.ServiceOptions\x18\xb8\x8e\x03 \x01(\v2\x19.prorate.v1.ServicePolicyR\rservicePolicyB5Z3github.com/cadenya/prorate/gen/prorate/v1;proratev1b\x06proto3"
+	"\x0eservice_policy\x12\x1f.google.protobuf.ServiceOptions\x18\xb8\x8e\x03 \x01(\v2\x19.prorate.v1.ServicePolicyR\rservicePolicyB1Z/go.cadenya.com/prorate/gen/prorate/v1;proratev1b\x06proto3"
 
 var (
 	file_prorate_v1_prorate_proto_rawDescOnce sync.Once

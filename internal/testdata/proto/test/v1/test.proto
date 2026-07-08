@@ -4,7 +4,7 @@ package test.v1;
 
 import "prorate/v1/prorate.proto";
 
-option go_package = "github.com/cadenya/prorate/internal/testdata/gen/test/v1;testv1";
+option go_package = "go.cadenya.com/prorate/internal/testdata/gen/test/v1;testv1";
 
 // AnnotatedService exercises every annotation shape: a service-level
 // default tier, a method-level tier override, an exempt method, and a

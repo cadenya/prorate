@@ -5,9 +5,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cadenya/prorate"
-	"github.com/cadenya/prorate/limitertest"
-	"github.com/cadenya/prorate/memlimiter"
+	"go.cadenya.com/prorate"
+	"go.cadenya.com/prorate/limitertest"
+	"go.cadenya.com/prorate/memlimiter"
 )
 
 func TestConformance(t *testing.T) {

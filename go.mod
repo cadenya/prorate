@@ -1,4 +1,4 @@
-module github.com/cadenya/prorate
+module go.cadenya.com/prorate
 
 go 1.25.0
 

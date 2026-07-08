@@ -25,7 +25,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cadenya/prorate"
+	"go.cadenya.com/prorate"
 )
 
 // Clock is a mutex-guarded manual clock for driving limiters with an

@@ -13,8 +13,8 @@ import (
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 
-	"github.com/cadenya/prorate"
-	"github.com/cadenya/prorate/memlimiter"
+	"go.cadenya.com/prorate"
+	"go.cadenya.com/prorate/memlimiter"
 )
 
 // testRegistry builds a registry over the annotated + plain test services.

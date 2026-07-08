@@ -8,9 +8,9 @@ import (
 	"github.com/alicebob/miniredis/v2"
 	"github.com/redis/go-redis/v9"
 
-	"github.com/cadenya/prorate"
-	"github.com/cadenya/prorate/limitertest"
-	"github.com/cadenya/prorate/redislimiter"
+	"go.cadenya.com/prorate"
+	"go.cadenya.com/prorate/limitertest"
+	"go.cadenya.com/prorate/redislimiter"
 )
 
 func newMiniredisClient(t *testing.T) *redis.Client {

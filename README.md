@@ -39,6 +39,12 @@ service AgentService {
 
 ## Quickstart
 
+Install the Go module:
+
+```
+go get go.cadenya.com/prorate
+```
+
 Add the annotations to your proto build (`buf.yaml`):
 
 ```yaml
@@ -51,8 +57,8 @@ interceptor:
 
 ```go
 import (
-    "github.com/cadenya/prorate"
-    "github.com/cadenya/prorate/redislimiter"
+    "go.cadenya.com/prorate"
+    "go.cadenya.com/prorate/redislimiter"
 )
 
 // 1. Register your services, then build the registry via reflection.

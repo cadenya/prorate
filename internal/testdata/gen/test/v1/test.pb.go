@@ -7,7 +7,7 @@
 package testv1
 
 import (
-	_ "github.com/cadenya/prorate/gen/prorate/v1"
+	_ "go.cadenya.com/prorate/gen/prorate/v1"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
@@ -496,7 +496,7 @@ const file_test_v1_test_proto_rawDesc = "" +
 	"\vTypoService\x12@\n" +
 	"\x03Bad\x12\x13.test.v1.BadRequest\x1a\x14.test.v1.BadResponse\"\x0e\xc2\xf3\x18\n" +
 	"\n" +
-	"\bintensivBAZ?github.com/cadenya/prorate/internal/testdata/gen/test/v1;testv1b\x06proto3"
+	"\bintensivB=Z;go.cadenya.com/prorate/internal/testdata/gen/test/v1;testv1b\x06proto3"
 
 var (
 	file_test_v1_test_proto_rawDescOnce sync.Once

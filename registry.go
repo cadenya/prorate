@@ -12,7 +12,7 @@ import (
 	"google.golang.org/protobuf/reflect/protoregistry"
 	"google.golang.org/protobuf/types/descriptorpb"
 
-	proratev1 "github.com/cadenya/prorate/gen/prorate/v1"
+	proratev1 "go.cadenya.com/prorate/gen/prorate/v1"
 )
 
 // Policy is the rate limit policy resolved for a single RPC method from
