@@ -49,7 +49,7 @@ Add the annotations to your proto build (`buf.yaml`):
 
 ```yaml
 deps:
-  - buf.build/cadenya/prorate
+  - buf.build/cadenya-agents/prorate
 ```
 
 Annotate your services (see above), regenerate, then wire up the
@@ -93,7 +93,7 @@ example lives in [`examples/basicserver`](examples/basicserver).
 
 ## Annotations
 
-Module: `buf.build/cadenya/prorate`, package `prorate.v1`. Both extensions
+Module: `buf.build/cadenya-agents/prorate`, package `prorate.v1`. Both extensions
 use field number **51000** on `google.protobuf.MethodOptions` /
 `ServiceOptions` (no collision with protovalidate's 1159 or
 grpc-gateway's numbers).
